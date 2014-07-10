@@ -1,0 +1,460 @@
+<!doctype><html><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Odyssey.js Slides</title>
+  <meta name="description" content="">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="icon" type="image/x-icon" href="http://cartodb.github.io/odyssey.js/editor/favicon.png">
+  <link rel="icon" type="image/png" href="http://cartodb.github.io/odyssey.js/editor/favicon.png">
+
+  <link rel="stylesheet" href="http://cartodb-libs.global.ssl.fastly.net/cartodb.js/v3/themes/css/cartodb.css">
+  <link rel="stylesheet" href="http://cartodb.github.io/odyssey.js/editor/css/slides.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="http://cartodb.github.io/odyssey.js/vendor/modernizr-2.6.2.min.js"></script>
+
+</head>
+<body>
+  <div id="map" style="width: 100%; height: 100%;"></div>
+
+  <div id="slides_container" style="display:block;">
+    <div id="dots"></div>
+
+    <div id="slides"></div>
+
+    <ul id="navButtons">
+      <li><a class="prev"></a></li>
+      <li><a class="next"></a></li>
+    </ul>
+  </div>
+
+  <div id="credits">
+    <span class="title" id="title"></span>
+    <span class="author"><strong id="author">The New York Daily News</strong> <a href="#">Odyssey.js</a><span>
+  </span></span></div>
+
+  <script src="http://cartodb-libs.global.ssl.fastly.net/cartodb.js/v3/cartodb.js"></script>
+  <script src="http://cartodb.github.io/odyssey.js/dist/odyssey.js" charset="UTF-8"></script>
+
+  <script>
+    var resizePID;
+
+    function clearResize() {
+      clearTimeout(resizePID);
+      resizePID = setTimeout(function() { adjustSlides(); }, 100);
+    }
+
+    if (!window.addEventListener) {
+      window.attachEvent("resize", function load(event) {
+        clearResize();
+      });
+    } else {
+      window.addEventListener("resize", function load(event) {
+        clearResize();
+      });
+    }
+
+    function adjustSlides() {
+      var container = document.getElementById("slides_container"),
+          slide = document.querySelectorAll('.selected_slide')[0];
+
+      if (slide) {
+        if (slide.offsetHeight+169+40+80 >= window.innerHeight) {
+          container.style.bottom = "80px";
+
+          var h = container.offsetHeight;
+
+          slide.style.height = h-169+"px";
+          slide.classList.add("scrolled");
+        } else {
+          container.style.bottom = "auto";
+          container.style.minHeight = "0";
+
+          slide.style.height = "auto";
+          slide.classList.remove("scrolled");
+        }
+      }
+    }
+
+    var resizeAction = O.Action(function() {
+      function imageLoaded() {
+        counter--;
+
+        if (counter === 0) {
+          adjustSlides();
+        }
+      }
+      var images = $('img');
+      var counter = images.length;
+
+      images.each(function() {
+        if (this.complete) {
+          imageLoaded.call( this );
+        } else {
+          $(this).one('load', imageLoaded);
+        }
+      });
+    });
+
+    function click(el) {
+      var element = O.Core.getElement(el);
+      var t = O.Trigger();
+
+      // TODO: clean properly
+      function click() {
+        t.trigger();
+      }
+
+      if (element) element.onclick = click;
+
+      return t;
+    }
+
+    O.Template({
+      init: function() {
+        var seq = O.Triggers.Sequential();
+
+        var baseurl = this.baseurl = 'http://{s}.api.cartocdn.com/base-light/{z}/{x}/{y}.png';
+        var map = this.map = L.map('map').setView([0, 0.0], 4);
+        var basemap = this.basemap = L.tileLayer(baseurl, {
+          attribution: 'data OSM - map CartoDB'
+        }).addTo(map);
+
+        // enanle keys to move
+        O.Keys().on('map').left().then(seq.prev, seq)
+        O.Keys().on('map').right().then(seq.next, seq)
+
+        click(document.querySelectorAll('.next')).then(seq.next, seq)
+        click(document.querySelectorAll('.prev')).then(seq.prev, seq)
+
+        var slides = O.Actions.Slides('slides');
+        var story = O.Story()
+
+        this.story = story;
+        this.seq = seq;
+        this.slides = slides;
+        this.progress = O.UI.DotProgress('dots').count(0);
+      },
+
+      update: function(actions) {
+        var self = this;
+
+        if (!actions.length) return;
+
+        this.story.clear();
+
+        if (this.baseurl && (this.baseurl !== actions.global.baseurl)) {
+          this.baseurl = actions.global.baseurl || 'http://0.api.cartocdn.com/base-light/{z}/{x}/{y}.png';
+
+          this.basemap.setUrl(this.baseurl);
+        }
+
+        if (this.cartoDBLayer && ("http://"+self.cartoDBLayer.options.user_name+".cartodb.com/api/v2/viz/"+self.cartoDBLayer.options.layer_definition.stat_tag+"/viz.json" !== actions.global.vizjson)) {
+          this.map.removeLayer(this.cartoDBLayer);
+
+          this.cartoDBLayer = null;
+          this.created = false;
+        }
+
+        if (actions.global.vizjson && !this.cartoDBLayer) {
+          if (!this.created) { // sendCode debounce < vis loader
+            cdb.vis.Loader.get(actions.global.vizjson, function(vizjson) {
+              self.map.fitBounds(vizjson.bounds);
+
+              cartodb.createLayer(self.map, vizjson)
+                .done(function(layer) {
+                  self.cartoDBLayer = layer;
+
+                  var sublayer = layer.getSubLayer(0),
+                      layer_name = layer.layers[0].options.layer_name,
+                      filter = actions.global.cartodb_filter ? " WHERE "+actions.global.cartodb_filter : "";
+
+                  sublayer.setSQL("SELECT * FROM "+layer_name+filter)
+
+                  self.map.addLayer(layer);
+
+                  self._resetActions(actions);
+                }).on('error', function(err) {
+                  console.log("some error occurred: " + err);
+                });
+            });
+
+            this.created = true;
+          }
+
+          return;
+        }
+
+        this._resetActions(actions);
+      },
+
+      _resetActions: function(actions) {
+        // update footer title and author
+        var title_ = actions.global.title === undefined ? '' : actions.global.title,
+            author_ = actions.global.author === undefined ? 'Using' : 'By '+actions.global.author+' using';
+
+        document.getElementById('title').innerHTML = title_;
+        document.getElementById('author').innerHTML = author_;
+        document.title = title_ + " | " + author_ +' Odyssey.js';
+
+        var sl = actions;
+
+        document.getElementById('slides').innerHTML = ''
+        this.progress.count(sl.length);
+
+        // create new story
+        for(var i = 0; i < sl.length; ++i) {
+          var slide = sl[i];
+          var tmpl = "<div class='slide slide_"+i+"' style='diplay:none;'>";
+
+          tmpl += slide.html();
+          tmpl += "</div>";
+          document.getElementById('slides').innerHTML += tmpl;
+
+          this.progress.step(i).then(this.seq.step(i), this.seq)
+
+          var actions = O.Parallel(
+            this.slides.activate(i),
+            slide(this),
+            this.progress.activate(i),
+            resizeAction
+          );
+
+          actions.on("finish.app", function() {
+            adjustSlides();
+          });
+
+          this.story.addState(
+            this.seq.step(i),
+            actions
+          )
+        }
+
+        this.story.go(this.seq.current());
+      },
+
+      changeSlide: function(n) {
+        this.seq.current(n);
+      }
+    });
+
+  </script>
+
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-20934186-21', 'cartodb.github.io');
+    ga('send', 'pageview');
+  </script>
+
+
+<script id="md_template" type="text/template">```
+-title:
+-author: "New York Daily News"
+-baseurl: "https://dnv9my2eseobd.cloudfront.net/v3/cartodb.map-4xtxp73f/{z}/{x}/{y}.png"
+```
+#![](images/48hours.jpeg)
+
+```
+L.marker([40.6408, -73.9562], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.7754, -73.9330], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6689, -73.9588], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6205, -74.0252], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6661, -73.8954], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6877, -73.9371], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.8135, -73.9513], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6735, -73.9347], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6925, -73.9323], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6322, -73.8844], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6691, -73.8971], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6960, -73.9773], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.8172, -73.8977], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6598, -73.8975], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6763, -73.8810], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+L.marker([40.6787, -73.7939], {icon: new L.icon({iconUrl: 'images/newmarker2.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+- center: [40.6603, -74.0616]
+- zoom: 11
+```
+
+The New York Daily News tracked 16 shooting incidents reported over a 48-hour period between 6pm Friday, May 30, and 6 pm Sunday, June 1. Twenty people were wounded and many innocent bystanders were caught in the crossfire. A month later, only two suspects have been charged, but one may be the wrong guy.
+
+
+#"All the dreams we had are shattered," says the victim's husband.
+```
+- center: [40.6317, -73.9783]
+- zoom: 13
+L.marker([40.641077, -73.956260], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+##8:30 p.m. 5/30
+
+![](images/Crawford2.jpg)
+Deleta Crawford, 60, walked out of a Flatbush grocery store and into a gang-related crossfire. She was struck in the spine by a stray bullet and likely paralyzed for life from the waist down. “I could feel my legs had no feelings,” she told the Daily News. A 22-year-old gunman was arrested four days later.
+
+#Man shot in leg while trying to break up fight, he says
+##11:30 p.m. 5/30
+```
+- center: [40.7737, -73.9417]
+- zoom: 15
+L.marker([40.775202, -73.933258], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/barbershop.jpg)
+James Utley, 39, was shot while trying to break up an argument between two men fighting outside a Long Island City barber shop. Utley, who had three prior arrests, later brought himself to Jacobi Hospital in the Bronx, cops said. No arrests.
+
+
+#Bullets shatter bedroom window, miss sleeping couple
+##2:29 a.m. 5/31
+```
+- center: [40.6669, -73.9658]
+- zoom: 15
+L.marker([40.669191, -73.958827], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/president.jpg)
+A man leaving a Prospect Lefferts Gardens barbershop opened fire on a bystander, then turned and blasted several shots through the bedroom window of a third-floor apartment, where a man and a woman were sleeping. No one was injured. No arrests.
+
+
+#Bullets fire into sedan, miss two targets
+##2:30 a.m. 5/31
+```
+- center: [40.6406, -73.9203]
+- zoom: 15
+L.marker([40.642932, -73.913912], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Sedan.jpg)
+Gunshots fired from the rear passenger window of a black Chrysler sedan in Canarsie missed their two intended targets, cops said. No arrests.
+
+
+#"I was just at the wrong place at the wrong time," says victim.
+##6:15 a.m. 5/31
+```
+- center: [40.6628, -73.9046]
+- zoom: 15
+L.marker([40.666414, -73.895430], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Fonseca2.jpg)
+Juan Fonseca, 21, lost the tip of his right thumb and part of his ring finger when shot in the hand by an unknown gunman on an East New York street. Fonseca said he was an innocent bystander heading to work. No arrests.
+
+
+#Family dispute results in gunfire
+##10:50 a.m. 5/31
+```
+- center: [40.6846, -73.9451]
+- zoom: 15
+L.marker([40.688102, -73.937434], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Dyson.jpg)
+A domestic dispute between two siblings was the possible cause when Tyrek Dyson, 20, was shot outside his apartment building in Bedford-Stuyvesant. There has been no arrest, although cops believe the sister’s boyfriend might be involved.
+
+
+#"I get scared it could happen to me," says 10-year-old girl at playground.
+##7 p.m. 5/31
+```
+- center: [40.818803, -73.959814]
+- zoom: 15
+L.marker([40.818186, -73.949557], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Diabate.jpg)
+Ibrahim Diabate, 16, was shot once in the thigh while playing basketball in St. Nicholas Park in Harlem after a confrontation between two groups of teens. "They just fired a shot. I was in the wrong place at the wrong time," said the 10th grade student. No arrests.
+
+
+#"I really blame the police. There were none," says victim.
+##8:09 p.m. 5/31
+```
+- center: [40.6710, -73.9425]
+- zoom: 15
+L.marker([40.673737, -73.934802], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Shaw.jpg)
+Renee Shaw, 54, was struck by a bullet that narrowly missed her 6-year-old granddaughter when a gunman in a hoodie opened fire at the annual “Old Timers’ Day” picnic in Crown Heights’ Albany Houses. The shooter also wounded three men at the barbecue in St. John’s Park. Shaw said she’s lucky to be alive. No arrests.
+
+
+#"We came here to celebrate my brother's memorial," says bystander.
+##9:39 p.m. 5/31
+```
+- center: [40.6902, -73.9421]
+- zoom: 15
+L.marker([40.692826, -73.932264], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Memorial.jpg)
+Ray Shawn James, 35, of South Carolina was attending a memorial for his murdered brother in Bedford-Stuyvesant when he was shot and wounded by four attackers - who sources said were apparently hunting another family member. No arrests.
+
+
+#"It sounded like a lot of shots ... like cachingcachingcaching," recounts victim.
+##10:50 p.m. 5/31
+```
+- center: [40.6284, -73.8943]
+- zoom: 15
+L.marker([40.633117, -73.883551], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Johnson1.jpg)
+Terence Johnson, 23, was walking with his girlfriend in Canarsie when he was shot by an attacker who is still on the loose. The wounded young man insists he has no idea why he was targeted. “All I know is I’m going to be in the house until I can leave,” he said.
+
+
+#"My basketball career - I can't play in tournaments this summer," says victim.
+##11:00 p.m. 5/31
+```
+- center: [40.6660, -73.9064]
+- zoom: 15
+L.marker([40.669302, -73.897118], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Welch1.jpg)
+Versace Welch, 16, was shot in the right leg and Tushawn Booker, 18, shot in the left thigh after attending an East New York cookout and memorial for slain pal Tyquan (Nookie) Jamieson. Welch — who believes he was shot by mistake — is sporting a cast that runs from his toes to his upper thigh. No arrests.
+
+
+#Cops find 13 bullet holes in driver's side door: source
+##11:25 p.m. 5/31
+```
+- center: [40.6917, -73.9855]
+- zoom: 15
+L.marker([40.6960, -73.9773], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Smith.jpg)
+Justin Smith, 20, and Tyler Anderson, 23, were shot while sitting in a car in Clinton Hill. Anderson, who had been sprung from jail on a gun charge in March, turned up at Kings County Hospital two days after the shooting. No apparent motive or arrests. 
+
+
+#Richocheting bullet hits 20-year-old
+##12:15 a.m. 6/1
+```
+- center: [40.8118, -73.9094]
+- zoom: 15
+L.marker([40.8172, -73.8977], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Forman.jpg)
+Zay Forman, 20, took a bullet in the lower back in a drive-by shooting as he was walking home in the Longwood neighborhood. He was apparently hit by a ricocheting bullet fired in a drug dispute. A white Dodge Caravan was seen leaving the scene. No arrests.
+
+
+#Victim in gang dispute not talking: sources
+##1:41 a.m. 6/1
+```
+- center: [40.6534, -73.9068]
+- zoom: 15
+L.marker([40.6598, -73.8975], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Hinsdale.jpg)
+Reputed gang member LeQuan Battle, 18, was shot twice before three males were seen fleeing the scene in East New York. Sources said he was uncooperative. Miguel Kinch, 16, who had 11 prior arrests, was arrested and charged with weapon possession and menacing.
+
+#Mother of reputed gang member praying for help
+##2:09 a.m. 6/1
+```
+- center: [40.676039, -73.890230]
+- zoom: 15
+L.marker([40.676326, -73.881033], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Glover.jpg)
+Marcus Glover, a 23-year-old parolee, was shot five times in East New York for unknown reasons. No arrests. The alleged member of the Bloods was popped twice in the stomach, once in the neck, once in the right hand and once in the jaw. His mother said she had no idea who was responsible, but she was praying for help.
+
+
+#Victim says man arrested in shooting is the wrong guy
+##5:26 a.m. 6/1
+```
+- center: [40.6742, -73.8041]
+- zoom: 15
+L.marker([40.6787, -73.7939], {icon: new L.icon({iconUrl: 'images/newmarker.png', iconSize:[30,40]})}).actions.addRemove(S.map)
+```
+![](images/Duffie.jpg)
+Robert Duffie, 54, was shot twice in Rochdale — reportedly for griping that he was stiffed by the host after cleaning up at an all-night backyard party. Charlston (Chew) Mitchell was charged in the shooting, but Duffie told The News he's the wrong guy.
+
+
+</script></body></html>
