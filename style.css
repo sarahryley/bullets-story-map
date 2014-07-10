@@ -1,0 +1,105 @@
+#slides_container{
+  width: 35%;
+}
+
+#slides_container .slide_0 h1 {
+  font-size: 60px;
+}
+
+#slides_container h1::after {
+	width: 200px;
+}
+
+#slides_container h2::after {
+	width: 0px;
+}
+
+@media (max-width:800px){
+  #slides_container {
+    background: transparent;
+    padding: 0;
+    bottom: 44px !important;
+    top: auto;
+    width: 100%;
+    left: 0;
+    max-height: 70%;
+  }
+
+  #navButtons {
+    position: absolute;
+  }
+
+  #dots {
+    text-align: center;
+  }
+
+  #dots li a {
+    color: #fff;
+  }
+
+  #dots li a.active {
+  }
+
+  #slides_container .slide {
+    background: rgba(255,255,255,0.7);
+    padding: 20px 20px 30px;
+  }
+
+  div#credits {
+    height: 68px;
+  }
+
+  div#credits span {
+    width: 100%;
+    text-align: center;
+  }
+
+  div#credits span.title {
+    left: 0;
+  }
+
+  div#credits span.author {
+    bottom: 0;
+    right: 0;
+    text-align: center;
+    padding-bottom: 18px;
+  }
+  ul#navButtons {
+    position: absolute;
+    top: -5px;
+    margin: 0;
+    width: 100%;
+  }
+
+  ul#navButtons li:first-child {
+    float: left;
+    margin-left: 20px;
+  }
+  ul#navButtons li:last-child {
+    float: right;
+    margin-right: 10px;
+  }
+
+  ul#navButtons li a {
+    background-image: url('images/navBtns.png') !important;
+  }
+}
+
+#slides_container h1 {
+  font-size: 30px;
+}
+
+#slides_container h2 {
+  margin-bottom: -20px;
+}
+
+#slides_container .slide.scrolled img {
+  margin: 0 0 20px;
+  width: 100%;
+}
+
+#slides_container p {
+  font-size: 14px;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
